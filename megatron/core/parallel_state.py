@@ -143,6 +143,8 @@ def initialize_model_parallel(
 
     enable_ds_sequence_parallel = sequence_parallel_size > 1
     if enable_ds_sequence_parallel:
+        print(f"tensor_model_parallel_size: {tensor_model_parallel_size}", flush=True)
+        print(f"pipeline_model_parallel_size: {pipeline_model_parallel_size}", flush=True)
         assert tensor_model_parallel_size == 1 and pipeline_model_parallel_size == 1, \
         'DeepSpeed\'s sequence parallel does not work with tensor parallel or pipeline parallel'
 

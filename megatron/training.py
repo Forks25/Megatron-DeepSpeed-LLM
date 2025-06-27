@@ -24,10 +24,12 @@ from deepspeed.runtime.data_pipeline.data_routing.helper import (
 import ezpz as ez
 import torch
 import torch.distributed as tdist
+from torchinfo import summary
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 import wandb
 from megatron import (
+    print_rank_0,
     get_args,
     get_current_global_batch_size,
     get_num_microbatches,
@@ -240,6 +242,35 @@ def pretrain(
         data_post_process=data_post_process,
         build_train_valid_test_datasets_provider=train_valid_test_dataset_provider,
     )
+
+    if torch.distributed.get_rank() == 0:
+        print(f"Summary:", flush=True)
+        summary(model[0].module, depth=7)
+
+        print(f"\nModules:")
+        print(model[0].module)
+
+        from megatron.core.parallel_state import get_tensor_model_parallel_group, get_pipeline_model_parallel_group, get_data_parallel_group
+
+        TP_group = get_tensor_model_parallel_group()
+        PP_group = get_pipeline_model_parallel_group()
+        DP_group = get_data_parallel_group()
+
+        TP_group_ranks = torch.distributed.get_process_group_ranks(TP_group)
+        PP_group_ranks = torch.distributed.get_process_group_ranks(PP_group)
+        DP_group_ranks = torch.distributed.get_process_group_ranks(DP_group)
+
+        print(f"TP_group_ranks: {TP_group_ranks}", flush=True)
+        print(f"PP_group_ranks: {PP_group_ranks}", flush=True)
+        print(f"DP_group_ranks: {DP_group_ranks}", flush=True)
+
+        # from deepspeed.utils.groups import _get_expert_parallel_ranks, _get_data_parallel_rank, get_tensor_model_parallel_rank, _get_sequence_parallel_rank
+        # print(f"_get_expert_parallel_ranks(): {_get_expert_parallel_ranks()}", flush=True)
+        # print(f"_get_data_parallel_rank(): {_get_data_parallel_rank()}", flush=True)
+        # print(f"get_tensor_model_parallel_rank(): {get_tensor_model_parallel_rank()}", flush=True)
+        # print(f"_get_sequence_parallel_rank(): {_get_sequence_parallel_rank()}", flush=True)
+        # _
+
     timers("model-and-optimizer-setup").stop()
     print_datetime("after model, optimizer, and learning rate " "scheduler are built")
     # Data stuff.
@@ -1041,6 +1072,48 @@ def train(
                 args.train_range_to_skip[1::2],
             )
         )
+
+    ## Q. Can we compile the model?
+    # import torch.distributed as dist
+    # dist.breakpoint()
+    # model = [torch.compile(model[0])]
+    # print(f"model: {model}", flush=True)
+    # exit()
+
+    # Torch Profiler
+    torch_profile = os.getenv("TORCH_PROFILER_ENABLE") == "2"
+    if torch_profile:
+        from torch.profiler import profile, ProfilerActivity, schedule
+        from datetime import datetime
+
+        # Remove every file and folder in args.trace_dir
+        # if torch.distributed.get_rank() == 0:
+        #     for entry in os.listdir(args.trace_dir):
+        #         full_path = os.path.join(args.trace_dir, entry)
+        #         os.remove(full_path)
+
+        # Get the current local date & time
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+        # Eugene's Profile
+        def trace_handler(prof):
+            if torch.distributed.get_rank() == 0:
+                prof.export_chrome_trace(
+                    f"{args.trace_dir}/{timestamp}/torch-trace-{RANK}-of-{WORLD_SIZE-1}-step{iteration}.json"
+                )
+            print_rank_0('finished profiling!')
+        activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
+        prof = profile(
+            schedule=schedule(wait=0, warmup=2, active=3),
+            activities=activities,
+            record_shapes=True,
+            with_stack=True,
+            on_trace_ready=trace_handler
+        )
+        # prevent undefined behaviors with num_steps = total schedule iter
+        args.train_iters = 5
+        prof.start()
+
     while iteration < args.train_iters and (
         args.train_tokens is None or args.consumed_train_tokens < args.train_tokens
     ):
@@ -1093,39 +1166,20 @@ def train(
             model[0].global_samples += model[0].train_batch_size()
             opt_param_scheduler.step(increment=increment)
         else:
-            if os.getenv("TORCH_PROFILER_ENABLE") == "2":
-                from torch.profiler import profile, ProfilerActivity
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
+                forward_step_func,
+                train_data_iterator,
+                model,
+                optimizer,
+                opt_param_scheduler,
+                config,
+            )
 
-                try:
-                    activities = [
-                        ProfilerActivity.CPU,
-                        ProfilerActivity.CUDA,
-                        ProfilerActivity.XPU,  # type:ignore
-                    ]
-                except Exception:
-                    log.warning("TORCH PROFILER WARNING: XPU is not supported")
-                    activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-                with profile(activities=activities) as prof:
-                    loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
-                        forward_step_func,
-                        train_data_iterator,
-                        model,
-                        optimizer,
-                        opt_param_scheduler,
-                        config,
-                    )
-                prof.export_chrome_trace(
-                    f"{args.trace_dir}/torch-trace-{RANK}-of-{WORLD_SIZE}-step{iteration}.json"
-                )
-            else:
-                loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
-                    forward_step_func,
-                    train_data_iterator,
-                    model,
-                    optimizer,
-                    opt_param_scheduler,
-                    config,
-                )
+            if torch_profile:
+                prof.step()
+                if iteration == args.train_iters-1:
+                    prof.stop()
+
         iteration += 1
         args.iteration = iteration
         new_samples = (

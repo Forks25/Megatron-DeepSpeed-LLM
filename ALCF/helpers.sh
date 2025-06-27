@@ -232,10 +232,10 @@ get_training_args() {
         "--timing-log-level=${TIMING_LOG_LEVEL:-1}"
         "--eval-interval=${EVAL_INTERVAL:-100}"
         "--eval-iters=${EVAL_ITERS:-20}"
-        "--save-interval=${SAVE_INTERVAL:-50}"
+        "--save-interval=${SAVE_INTERVAL:-500000}"
         "--log-interval=${LOG_INTERVAL:-1}"
-        "--save=${SAVE:-${CKPT_DIR}}"
-        "--load=${LOAD:-${CKPT_DIR}}"
+        "--save=''" # ${SAVE:-${CKPT_DIR}}"
+        "--load=''" # ${LOAD:-${CKPT_DIR}}"
         "--seq-length=${SEQ}"
         "--num-layers=${NLAYERS}"
         "--hidden-size=${HIDDEN}"
@@ -750,7 +750,7 @@ set_args() {
     fi
     ds_args+=("--deepspeed_config=${DS_CONFIG}")
     ds_args+=("--zero-stage=$ZERO_STAGE")
-    if [[ "${ZERO_STAGE}" == 3 ]]; then
+    if [[ "${ZERO_STAGE}" == 3 && $MICS_SHARD_SIZE ]]; then
         ds_args+=("--use-mics")
     fi
     # ds_args=" "
@@ -1272,27 +1272,48 @@ generateDSconfig() {
         optimizer=""
     fi
     if [[ "${ZERO_STAGE}" == 3 ]]; then
-        # \"mics_shard_size\": 2,
+        [[ $machine == "aurora" ]] && overlap_comm=false || overlap_comm=true
+        mics=""
+        if [[ $MICS_SHARD_SIZE ]]; then
+            [[ $MICS_SHARD_SIZE -gt $NGPU_PER_HOST ]] && mics_internode=true || mics_internode=false
+            mics="
+                \"mics_hierarchical_params_gather\": $mics_internode,
+                \"mics_shard_size\": $MICS_SHARD_SIZE,"
+        fi
+        hpz=""
+        if [[ $HPZ_SHARD_SIZE ]]; then
+            hpz="
+                \"zero_hpz_partition_size\": $HPZ_SHARD_SIZE,"
+        fi
+        
         zero="\
             \"zero_optimization\": {
               \"stage\": 3,
-              \"reduce_scatter\": false,
-              \"mics_hierarchical_params_gather\": true,
+              \"reduce_scatter\": true,
               \"stage3_max_live_parameters\": 3e9,
               \"stage3_max_reuse_distance\": 3e9,
               \"stage3_param_persistence_threshold\": 1e5,
               \"stage3_prefetch_bucket_size\": 5e7,
               \"contiguous_gradients\": true,
-              \"overlap_comm\": true,
-              \"reduce_bucket_size\": 90000000,
-              \"sub_group_size\": 1e9,
-              \"offload_optimizer\": {
-                \"device\": \"none\",
-                \"buffer_count\": 4,
-                \"pipeline_read\": false,
-                \"pipeline_write\": false,
-                \"pin_memory\": true
-              }
+              \"reduce_bucket_size\": ${reduce_bucket_size:-1024000000},
+              $mics
+              $hpz
+              \"overlap_comm\": $overlap_comm
+            },"
+            #   \"offload_optimizer\": {
+            #     \"device\": \"none\",
+            #     \"buffer_count\": 4,
+            #     \"pipeline_read\": false,
+            #     \"pipeline_write\": false,
+            #     \"pin_memory\": true
+            #   }
+            #   \"sub_group_size\": 1e9,
+        extra="\
+            \"comms_logger\": {
+            \"enabled\": ${COMMS_LOGGER:-false},
+            \"verbose\": false,
+            \"prof_all\": true,
+            \"debug\": false
             },"
     # elif [[ $ZERO_STAGE == 2 ]]; then
     elif [[ "${ZERO_STAGE}" == 2 || "${ZERO_STAGE}" == 1 ]]; then
@@ -1308,9 +1329,17 @@ generateDSconfig() {
         else
             zero="\
                 \"zero_optimization\": {
-                  \"stage\": $ZERO_STAGE
-                },"
+                  \"stage\": $ZERO_STAGE,
+                  \"reduce_scatter\": true,
+                  \"contiguous_gradients\": true,
+                  \"overlap_comm\": false,
+                  \"reduce_bucket_size\": 1024000000,
+                  \"allgather_bucket_size\": 1024000000
+                },
+            "
         fi
+            # \"use_data_before_expert_parallel_\": true,
+
         if [[ "${PP}" -gt 1 ]]; then
             extra="\
                 \"data_types\": {
@@ -1335,7 +1364,7 @@ generateDSconfig() {
     fi
     flops_profiler="\
         \"flops_profiler\": {
-          \"enabled\": true,
+          \"enabled\": ${FLOPS_PROFILER:-false},
           \"profile_step\": 2,
           \"module_depth\": -1,
           \"top_modules\": 1,
