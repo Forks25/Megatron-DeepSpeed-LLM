@@ -12,9 +12,6 @@
 
 
 export NO_COLOR=1
-# TZ="America/Chicago" date
-# DATE=$()
-# echo $DATE
 TZ='America/Chicago' date +%F_%H%M
 
 # ------------------------------------------------------------------------------------ #
@@ -23,53 +20,76 @@ TZ='America/Chicago' date +%F_%H%M
 module reset
 module load frameworks  # /2025.0.0
 source /lus/flare/projects/Aurora_deployment/eku/venv/base/bin/activate
+export PBS_O_WORKDIR="/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed"
 
 # 2. Env Variables
-aurora_env_var(){
-    export CCL_KVS_MODE=mpi
-    export CCL_KVS_CONNECTION_TIMEOUT=600 
-    export PALS_PMI=pmix # Required by Aurora mpich
-    export CCL_ATL_TRANSPORT=mpi # Required by Aurora mpich
+# aurora_env_var(){
+#     export CCL_KVS_MODE=mpi
+#     export CCL_KVS_CONNECTION_TIMEOUT=600 
+#     export PALS_PMI=pmix # Required by Aurora mpich
+#     export CCL_ATL_TRANSPORT=mpi # Required by Aurora mpich
 
-    export CCL_OP_SYNC=1
-    export CCL_ENABLE_AUTO_CACHE=0
-    export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=4096
+#     export CCL_OP_SYNC=1
+#     export CCL_ENABLE_AUTO_CACHE=0
+#     export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=4096
+#     export CCL_BCAST=topo  # prevent possible hang?
 
-    export FI_CXI_DEFAULT_CQ_SIZE=1048576
-    export FI_CXI_RX_MATCH_MODE=hybrid
-    export FI_MR_CACHE_MONITOR=kdreg2 #disabled
-    export FI_CXI_OFLOW_BUF_SIZE=8388608
-    export FI_CXI_CQ_FILL_PERCENT=30
+#     export FI_CXI_DEFAULT_CQ_SIZE=1048576
+#     export FI_CXI_RX_MATCH_MODE=hybrid
+#     export FI_MR_CACHE_MONITOR=kdreg2 #disabled
+#     export FI_CXI_OFLOW_BUF_SIZE=8388608
+#     export FI_CXI_CQ_FILL_PERCENT=30
 
-    export CCL_WORKER_AFFINITY=1,9,17,25,33,41,53,61,69,77,85,93
-    export CPU_BIND="list:2-8:10-16:18-24:26-32:34-40:42-48:54-60:62-68:70-76:78-84:86-92:94-100"
-    export NUMEXPR_MAX_THREADS=7
-    export OMP_NUM_THREADS=7
+#     export CCL_WORKER_AFFINITY=1,9,17,25,33,41,53,61,69,77,85,93
+#     export CPU_BIND="list:2-8:10-16:18-24:26-32:34-40:42-48:54-60:62-68:70-76:78-84:86-92:94-100"
+#     export NUMEXPR_MAX_THREADS=7
+#     export OMP_NUM_THREADS=7
 
-    export PALS_PING_PERIOD=480
-    export PALS_RPC_TIMEOUT=480
-}
-aurora_env_var  # set-up env variables
-
-# for perf reasons
-# export CCL_ALLGATHERV=topo
-# export CCL_ALLREDUCE=topo
-export CCL_BCAST=topo  # prevent possible hang?
+#     export PALS_PING_PERIOD=480
+#     export PALS_RPC_TIMEOUT=480
+# }
+# aurora_env_var  # set-up env variables
+# TODO: Insert VIT cfg
 
 # ------------------------------------------------------------------------------------ #
 
-# Get repo root dir
-# BASH_SOURCE or $0 is relative if the invokcation was also relative. This can give you incorrect result if you cd in between invokation and dirname.
-# cd $PBS_O_WORKDIR
-# echo $(pwd)
-# exit
-## TODO: Fix PBS_O_WORKDIR
-# if [[ -z $PBS_O_WORKDIR ]]; then
-#     echo got here
-#     cd $(dirname ${BASH_SOURCE[0]})
-#     cd ..
-#     export PBS_O_WORKDIR=$(pwd)
-# fi
+set_ccl_vars_on_aurora2() {
+export CCL_KVS_MODE=mpi
+export CCL_KVS_CONNECTION_TIMEOUT=600 
+export PALS_PMI=pmix
+export CCL_ATL_TRANSPORT=mpi
+
+export TORCH_LLM_ALLREDUCE=1
+export CCL_SYCL_ESIMD=1
+export CCL_ATL_SYNC_COLL=1
+export CCL_OP_SYNC=1
+export CCL_ENABLE_AUTO_CACHE=0
+export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=$((4096 * 8))
+
+export CCL_ALLREDUCE=topo
+export CCL_ALLGATHERV=topo # direct
+export CCL_ALLGATHERV_MEDIUM_SIZE_THRESHOLD=0
+export CCL_ALLREDUCE_SCALEOUT=direct
+export CCL_BCAST=double_tree
+
+export FI_CXI_DEFAULT_CQ_SIZE=1048576
+export FI_CXI_RX_MATCH_MODE=hybrid
+export FI_MR_CACHE_MONITOR=disabled
+export FI_CXI_OFLOW_BUF_SIZE=8388608
+export FI_CXI_CQ_FILL_PERCENT=30
+
+export CCL_WORKER_AFFINITY=1,9,17,25,33,41,53,61,69,77,85,93
+export CPU_BIND="list:2-8:10-16:18-24:26-32:34-40:42-48:54-60:62-68:70-76:78-84:86-92:94-100"
+export NUMEXPR_MAX_THREADS=7
+export OMP_NUM_THREADS=7
+
+export PALS_PING_PERIOD=480
+export PALS_RPC_TIMEOUT=480
+}
+set_ccl_vars_on_aurora2
+
+# Env Var Testing
+export CCL_ALLGATHERV_SCALEOUT=ring
 
 # ------------------------------------------------------------------------------------ #
 
@@ -82,7 +102,7 @@ export EVAL_ITERS=1
 export LOG_INTERVAL=1
 export FLOPS_PROFILER=true
 export COMMS_LOGGER=true
-# export TORCH_PROFILER_ENABLE=2
+export TORCH_PROFILER_ENABLE=2
 # export LOG_LEVEL="WARNING"
 # export EZPZ_LOG_LEVEL="WARNING"
 
@@ -90,15 +110,18 @@ export COMMS_LOGGER=true
 # sam's 70B cfg 
 # export HIDDEN=8192; export HEADS=64; export NUM_KV_HEAD=8; export SEQ=8192; export FFN_HIDDEN_SIZE=28672  # Usually 3*Hidden for GLU multiplier
 # divisible cfg 
-export HIDDEN=8160; export HEADS=60; export NUM_KV_HEAD=12; export SEQ=8160; export FFN_HIDDEN_SIZE=28560  # Usually 3*Hidden for GLU multiplier
-export NLAYERS=${NLAYERS:-1}  # 80 for 69B
+export NLAYERS=${NLAYERS:-24}  # 80 for 69B
+export HIDDEN=1024;
+export HEADS=16; 
+export SEQ=$((64 * 64));
+export FFN_HIDDEN_SIZE=4096  # Usually 3*Hidden for GLU multiplier
 
 export SP=${SP:-1}
 export PP=1
 export TP=${TP:-1}
 export MICRO_BATCH=${MBS:-1}
-export ZERO_STAGE=${ZERO_STAGE:-3}
-export USE_ACTIVATION_CHECKPOINTING=1
+# export ZERO_STAGE=${ZERO_STAGE:-3}
+# export USE_ACTIVATION_CHECKPOINTING=1
 # if [[ $MICS_SHARD_SIZE -gt 1 ]]; then
 #     # Custom DeepSpeed with MICS fix
 # fi
@@ -126,10 +149,4 @@ echo "${run_cmd[@]}" | tee -a "${OUTPUT_LOG}"
 printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
 # 5. run cmd
 log_pth="/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed/train.log"
-# eval "${run_cmd[*]}" |& tee $log_pth
-
-run_cmd="mpiexec --verbose --envall -np $NGPUS -ppn $NGPU_PER_HOST \
-    --cpu-bind $CPU_BIND \
-    python3 $EXEC $TRAIN_ARGS"
-echo run_cmd: $run_cmd
-eval $run_cmd |& tee $log_pth
+eval "${run_cmd[*]}" |& tee $log_pth

@@ -53,7 +53,7 @@ export PBS_O_WORKDIR="/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams
 
 export DATA_FILE_LIST=./ALCF/data-lists/aurora/books.txt
 export OPT=adamw
-export TRAIN_ITERS=50000
+export TRAIN_ITERS=15
 export EVAL_ITERS=1
 export LOG_INTERVAL=1
 # export WANDB_DISABLED=1
@@ -63,7 +63,7 @@ export LOG_INTERVAL=1
 
 ## Model
 export NLAYERS=2
-export HIDDEN=8160
+export HIDDEN=7680  # this divided by 60 is 128.
 export FFN_HIDDEN_SIZE=$((3*HIDDEN))
 export HEADS=60
 export NUM_KV_HEAD=12
@@ -77,9 +77,9 @@ export ZERO_STAGE=1
 export USE_ACTIVATION_CHECKPOINTING=1
 
 ## MoE variables
-num_experts=3
+num_experts=${NEXPERTS:-3}
 extra_ds_args="--num-experts $num_experts --expert-interval 1 --create-moe-param-group --topk 2"
-extra_ds_args="$extra_ds_args --moe-expert-parallel-size $num_experts"
+# extra_ds_args="$extra_ds_args --moe-expert-parallel-size $num_experts"
 # extra_ds_args="$extra_ds_args --enable-expert-tensor-parallelism"
 
 ## RUN

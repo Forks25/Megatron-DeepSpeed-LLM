@@ -13,9 +13,8 @@
 
 # module load pti-gpu
 # module load thapi
-# export THAPI_HOME=PBS_O_WORKDIR
 export PBS_O_WORKDIR="/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed"
-# export WANDB_DISABLED=1
+# export THAPI_HOME=PBS_O_WORKDIR
 
 cd /lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed/my_scripts/MICS
 num_nodes=$(wc -l < $PBS_NODEFILE)
@@ -34,20 +33,16 @@ run_exp() {
     # HPZ_SHARD_SIZE=$HPZ_SHARD_SIZE bash dense70B.sh |& tee $exp_name/HPZ.log
 }
 
-export TRAIN_ITERS=1000
-export NLAYERS=2
-# export CCL_REDUCE_SCATTER=direct
+export TRAIN_ITERS=10000
+export NLAYERS=20
+export GAS=8
 # export TORCH_PROFILER_ENABLE=2
-MICS_SHARD_SIZE=12
-HPZ_SHARD_SIZE=12
-# export TP=12
-# export MBS=4
-# export GAS=3
-export ZERO_STAGE=2
+# MICS_SHARD_SIZE=12
+# HPZ_SHARD_SIZE=12
 
 
-reduce_bucket_size=90000000 suffix="${suffix}_rbs9e7" run_exp
-# reduce_bucket_size=1024000000 suffix="${suffix}_rbs1e9" run_exp
+# reduce_bucket_size=90000000 suffix="${suffix}_rbs9e7" run_exp
+reduce_bucket_size=1024000000 suffix="${suffix}_rbs1e9" run_exp
 # reduce_bucket_size=2048000000 suffix="${suffix}_rbs2e9" run_exp
 # reduce_bucket_size=4096000000 suffix="${suffix}_rbs4e9" run_exp
 

@@ -44,13 +44,12 @@ vaino_env_var  # set-up env variables
 
 # ------------------------------------------------------------------------------------ #
 
-module reset
-module load frameworks/2025.0.0
-source /lus/flare/projects/Aurora_deployment/eku/venv/base/bin/activate
+# module reset
+# module load frameworks/2025.0.0
+# source /lus/flare/projects/Aurora_deployment/eku/venv/base/bin/activate
 
 # Get repo root dir
 export PBS_O_WORKDIR="/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed"
-
 export DATA_FILE_LIST=./ALCF/data-lists/aurora/books.txt
 export OPT=adamw
 export TRAIN_ITERS=50000
@@ -93,8 +92,7 @@ setup "$@ $extra_ds_args" || exit
 echo "${run_cmd[@]}" | tee -a "${OUTPUT_LOG}"
 # 4. Tell user where to find output
 printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
-# 5. run cmd
-# eval "${run_cmd[*]}" |& tee "/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed/train.log"
+# 5. run cmd (custom)
 run_cmd="mpiexec --verbose --envall -np $NGPUS -ppn $NGPU_PER_HOST \
     --cpu-bind $CPU_BIND \
     python3 $EXEC $TRAIN_ARGS"

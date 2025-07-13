@@ -11,18 +11,18 @@
 
 
 ##PBS -l min_walltime=01:00:00
-module reset
-module load frameworks/2025.0.0
-source /lus/flare/projects/Aurora_deployment/eku/venv/base/bin/activate
+# module reset
+# module load frameworks/2025.0.0
+# source /lus/flare/projects/Aurora_deployment/eku/venv/base/bin/activate
 
-export PBS_O_WORKDIR=$(dirname $0 | xargs realpath)
+export PBS_O_WORKDIR="/lus/flare/projects/Aurora_deployment/eku/scaling_MDS/Sams_Megatron-DeepSpeed"
 export DATA_FILE_LIST=./ALCF/data-lists/aurora/books.txt
 export OPT=adamw
 export GRAD_ACC_STEPS=1
-export TRAIN_ITERS=5
+export TRAIN_ITERS=100
 export EVAL_ITERS=1
 export LOG_INTERVAL=1
-export WANDB_DISABLED=1
+# export WANDB_DISABLED=1
 export FLOPS_PROFILER=true
 export COMMS_LOGGER=true
 
@@ -61,23 +61,23 @@ vaino_env_var(){
 vaino_env_var
 
 ## Model
-export NLAYERS=24
+export NLAYERS=4
+# export HIDDEN=$((8 * 36))
 export HIDDEN=4680
-export FFN_HIDDEN_SIZE=$((HIDDEN * 12 * 3))
+export FFN_HIDDEN_SIZE=$((HIDDEN * 3))
 export HEADS=36
 export NUM_KV_HEAD=12
 export SEQ=4104
 export SP=1
 export PP=1
-export TP=12
-export MICRO_BATCH=12
-export ZERO_STAGE=1
+export TP=1
+export MICRO_BATCH=1
+# export TORCH_PROFILER_ENABLE=2  # Enable torch profiler
+# export ZERO_STAGE=3
 export USE_ACTIVATION_CHECKPOINTING=1
-
 
 ## RUN
 cd "${PBS_O_WORKDIR}" || exit
-cd ..  # Since we are inside myscripts directory
 HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
 GIT_BRANCH=$(git branch --show-current) && export GIT_BRANCH
 # 2. source `ALCF/helpers.sh`
