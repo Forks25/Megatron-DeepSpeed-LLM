@@ -53,7 +53,6 @@ from megatron.initialize import (
 from megatron.model import Float16Module, GPTModel
 from megatron.model import DistributedDataParallel as LocalDDP
 from megatron.model.transformer import ParallelTransformerLayer
-from megatron.model.vision.knn_monitor import compute_feature_bank
 from megatron.optimizer import get_megatron_optimizer
 from megatron.optimizer_param_scheduler import OptimizerParamScheduler
 from megatron.training_log import training_log
@@ -1098,13 +1097,15 @@ def train(
         # Eugene's Profile
         def trace_handler(prof):
             if torch.distributed.get_rank() == 0:
+                trace_dir = f"{args.trace_dir}{timestamp}"
+                os.makedirs(trace_dir, exist_ok=True)
                 prof.export_chrome_trace(
-                    f"{args.trace_dir}/{timestamp}/torch-trace-{RANK}-of-{WORLD_SIZE-1}-step{iteration}.json"
+                    f"{trace_dir}/torch-trace-{RANK}-of-{WORLD_SIZE-1}-step{iteration}.json"
                 )
             print_rank_0('finished profiling!')
         activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
         prof = profile(
-            schedule=schedule(wait=0, warmup=2, active=3),
+            schedule=schedule(wait=1, warmup=2, active=2),
             activities=activities,
             record_shapes=True,
             with_stack=True,
@@ -1327,6 +1328,7 @@ def evaluate(
     accelerator = get_accelerator()
     assert args is not None and accelerator is not None
     if args.vision_pretraining and args.vision_pretraining_type == "dino":
+        from megatron.model.vision.knn_monitor import compute_feature_bank
         compute_feature_bank(model)
 
     # Turn on evaluation mode which disables dropout.
